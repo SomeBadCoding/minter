@@ -1,28 +1,17 @@
 import fs from 'fs';
 import path from 'path';
 import { $log } from '@tsed/logger';
-import axios from 'axios';
 import retry from 'async-retry';
 import Configstore from 'configstore';
 import { MichelsonMap, TezosToolkit } from '@taquito/taquito';
 import { InMemorySigner } from '@taquito/signer';
-
-interface BoostrapStorageCallback {
-  (): object;
-}
-
-interface BootstrapContractParams {
-  configKey: string;
-  contractFilename: string;
-  contractGitHash: string;
-  contractAlias: string;
-  initStorage: BoostrapStorageCallback;
-}
-
-interface ContractCodeResponse {
-  code: string;
-  url: string;
-}
+import {
+  Fa2MultiNftFaucetCode,
+  FixedPriceSaleMarketTezCode,
+  FixedPriceSaleMarketTezCancelOnlyAdminCode,
+  FixedPriceSaleMarketTezFixedFeeCancelOnlyAdminCode,
+  FixedPriceSaleTezFixedFeeCode
+} from '@tqtezos/minter-contracts';
 
 function toHexString(input: string) {
   return Buffer.from(input).toString('hex');
@@ -61,16 +50,6 @@ async function getContractAddress(
     .at(existingAddress)
     .then(() => existingAddress)
     .catch(() => '');
-}
-
-async function fetchContractCode(
-  contractFilename: string,
-  contractGitHash: string
-): Promise<ContractCodeResponse> {
-  const rawRepoUrl = 'https://raw.githubusercontent.com/tqtezos/minter-sdk';
-  const contractCodeUrl = `${rawRepoUrl}/${contractGitHash}/contracts/bin/${contractFilename}`;
-  const response = await axios.get(contractCodeUrl);
-  return { code: response.data, url: contractCodeUrl };
 }
 
 async function waitForNetwork(toolkit: TezosToolkit): Promise<void> {
@@ -115,6 +94,17 @@ function readEnv(): string {
   return env;
 }
 
+interface BoostrapStorageCallback {
+  (): object;
+}
+
+interface BootstrapContractParams {
+  configKey: string;
+  contractAlias: string;
+  contractCode: object[];
+  initStorage: BoostrapStorageCallback;
+}
+
 async function bootstrapContract(
   config: Configstore,
   toolkit: TezosToolkit,
@@ -130,18 +120,11 @@ async function bootstrapContract(
 
   let contract;
   try {
-    const { code, url: contractCodeUrl } = await fetchContractCode(
-      params.contractFilename,
-      params.contractGitHash
-    );
-
-    $log.info(
-      `Originating ${params.contractAlias} contract from ${contractCodeUrl} ...`
-    );
+    $log.info(`Originating ${params.contractAlias} contract...`);
 
     const storage = params.initStorage();
     const origOp = await toolkit.contract.originate({
-      code: code,
+      code: params.contractCode,
       storage: storage
     });
 
@@ -176,26 +159,54 @@ async function bootstrap(env: string) {
   await bootstrapContract(bootstrappedConfig, toolkit, {
     configKey: 'contracts.nftFaucet',
     contractAlias: 'nftFaucet',
-    contractFilename: 'fa2_multi_nft_faucet.tz',
-    contractGitHash: 'aec441412d53653fa0048fee7c12c1eb1365909b',
+    contractCode: Fa2MultiNftFaucetCode.code,
     initStorage: initStorageNftFaucet
   });
 
   // bootstrap marketplace fixed price (tez)
-  await bootstrapContract(bootstrappedConfig, toolkit, {
-    configKey: 'contracts.marketplace.fixedPrice.tez',
-    contractAlias: 'fixedPriceMarketTez',
-    contractFilename: 'fixed_price_sale_market_tez.tz',
-    contractGitHash: '8f67bb8c2abc12b8e6f8e529e1412262972deab3',
-    initStorage: () => new MichelsonMap()
-  });
+  const adminOnly = config.get("contractOpts.marketplace.adminOnly");
+  const marketplaceFeePercent = config.get("contractOpts.marketplace.fee.percent");
+  const marketplaceFeeAddress = config.get("contractOpts.marketplace.fee.address");
+  if (marketplaceFeePercent && marketplaceFeeAddress) {
+    await bootstrapContract(bootstrappedConfig, toolkit, {
+      configKey: 'contracts.marketplace.fixedPrice.tez',
+      contractAlias: 'fixedPriceMarketTez',
+      contractCode: adminOnly ? FixedPriceSaleTezFixedFeeCode.code : FixedPriceSaleMarketTezFixedFeeCancelOnlyAdminCode.code,
+      initStorage: () => ({
+        admin: {
+          admin: config.get("admin.address"),
+          paused: false
+        },
+        fee: {
+          fee_address: marketplaceFeeAddress,
+          fee_percent: marketplaceFeePercent
+        },
+        next_sale_id: 0,
+        sales: new MichelsonMap()
+      })
+    });
+  } else {
+    await bootstrapContract(bootstrappedConfig, toolkit, {
+      configKey: 'contracts.marketplace.fixedPrice.tez',
+      contractAlias: 'fixedPriceMarketTez',
+      contractCode: adminOnly ? FixedPriceSaleMarketTezCode.code : FixedPriceSaleMarketTezCancelOnlyAdminCode.code,
+      initStorage: () => ({
+        admin: {
+          admin: config.get("admin.address"),
+          paused: false
+        },
+        next_sale_id: 0,
+        sales: new MichelsonMap()
+      })
+    });
+  }
 }
 
 async function main() {
   console.log(process.argv[2]);
   const envArg = process.argv[2];
   let env;
-  if (['mainnet', 'testnet', 'sandbox'].includes(envArg)) {
+  if (['mainnet', 'testnet', 'custom', 'sandbox'].includes(envArg)) {
     env = envArg;
   } else {
     env = readEnv();

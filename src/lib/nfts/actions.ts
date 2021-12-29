@@ -1,10 +1,12 @@
 import { MichelsonMap } from '@taquito/taquito';
+import {
+  Fa2MultiNftAssetCode,
+  Fa2MultiNftFaucetCode
+} from '@tqtezos/minter-contracts';
 import { Buffer } from 'buffer';
 import { SystemWithWallet } from '../system';
-import faucetCode from './code/fa2_tzip16_compat_multi_nft_faucet';
-import assetCode from './code/fa2_tzip16_compat_multi_nft_asset';
 import { uploadIPFSJSON } from '../util/ipfs';
-import { NftMetadata } from './queries';
+import { NftMetadata } from './decoders';
 
 function toHexString(input: string) {
   return Buffer.from(input).toString('hex');
@@ -24,7 +26,7 @@ export async function createFaucetContract(
   metadataMap.set('', toHexString(resp.data.ipfsUri));
   return await system.toolkit.wallet
     .originate({
-      code: faucetCode,
+      code: Fa2MultiNftFaucetCode.code,
       storage: {
         assets: {
           ledger: new MichelsonMap(),
@@ -52,7 +54,7 @@ export async function createAssetContract(
   metadataMap.set('', toHexString(resp.data.ipfsUri));
   return await system.toolkit.wallet
     .originate({
-      code: assetCode,
+      code: Fa2MultiNftAssetCode.code,
       storage: {
         assets: {
           ledger: new MichelsonMap(),
@@ -84,7 +86,7 @@ export async function mintToken(
   const resp = await uploadIPFSJSON(system.config.ipfsApi, {
     ...metadata,
     decimals: 0,
-    booleanAmount: true
+    isBooleanAmount: true
   });
   token_info.set('', toHexString(resp.data.ipfsUri));
 
@@ -99,6 +101,44 @@ export async function mintToken(
       }
     ])
     .send();
+}
+
+interface MintData {
+  owner: string;
+  token_metadata: {
+    token_id: number;
+    token_info: MichelsonMap<string, string>;
+  };
+}
+
+export async function mintTokens(
+  system: SystemWithWallet,
+  address: string,
+  metadata: NftMetadata[]
+) {
+  const contract = await system.toolkit.wallet.at(address);
+  const storage = await contract.storage<any>();
+
+  const token_id = storage.assets.next_token_id;
+  const mints: MintData[] = [];
+  for (const [index, meta] of metadata.entries()) {
+    const token_info = new MichelsonMap<string, string>();
+    const resp = await uploadIPFSJSON(system.config.ipfsApi, {
+      ...meta,
+      decimals: 0,
+      isBooleanAmount: true
+    });
+    token_info.set('', toHexString(resp.data.ipfsUri));
+    mints.push({
+      owner: system.tzPublicKey,
+      token_metadata: {
+        token_id: token_id + index,
+        token_info
+      }
+    });
+  }
+
+  return contract.methods.mint(mints).send();
 }
 
 export async function transferToken(
@@ -123,11 +163,12 @@ export async function listTokenForSale(
   marketplaceContract: string,
   tokenContract: string,
   tokenId: number,
-  salePrice: number
+  salePrice: number,
+  saleQty: number
 ) {
   const contractM = await system.toolkit.wallet.at(marketplaceContract);
   const contractT = await system.toolkit.wallet.at(tokenContract);
-  const batch = await system.toolkit.wallet
+  const batch = system.toolkit.wallet
     .batch([])
     .withContractCall(
       contractT.methods.update_operators([
@@ -139,9 +180,45 @@ export async function listTokenForSale(
           }
         }
       ])
+    );
+
+  const sellSchema = contractM.parameterSchema.ExtractSchema()['sell'];
+  if (sellSchema.hasOwnProperty('sale_token_param_tez')) {
+    batch.withContractCall(
+      contractM.methods.sell(salePrice, tokenContract, tokenId)
+    );
+  } else {
+    batch.withContractCall(
+      contractM.methods.sell(tokenContract, tokenId, salePrice, saleQty)
+    );
+  }
+
+  return batch.send();
+}
+
+export async function cancelTokenSaleLegacy(
+  system: SystemWithWallet,
+  marketplaceContract: string,
+  tokenContract: string,
+  tokenId: number
+) {
+  const contractM = await system.toolkit.wallet.at(marketplaceContract);
+  const contractT = await system.toolkit.wallet.at(tokenContract);
+  const batch = system.toolkit.wallet
+    .batch([])
+    .withContractCall(
+      contractM.methods.cancel(system.tzPublicKey, tokenContract, tokenId)
     )
     .withContractCall(
-      contractM.methods.sell(salePrice, tokenContract, tokenId)
+      contractT.methods.update_operators([
+        {
+          remove_operator: {
+            owner: system.tzPublicKey,
+            operator: marketplaceContract,
+            token_id: tokenId
+          }
+        }
+      ])
     );
   return batch.send();
 }
@@ -150,14 +227,15 @@ export async function cancelTokenSale(
   system: SystemWithWallet,
   marketplaceContract: string,
   tokenContract: string,
-  tokenId: number
+  tokenId: number,
+  saleId: number
 ) {
   const contractM = await system.toolkit.wallet.at(marketplaceContract);
   const contractT = await system.toolkit.wallet.at(tokenContract);
-  const batch = await system.toolkit.wallet
+  const batch = system.toolkit.wallet
     .batch([])
     .withContractCall(
-      contractM.methods.cancel(system.tzPublicKey, tokenContract, tokenId)
+      contractM.methods.cancel(saleId)
     )
     .withContractCall(
       contractT.methods.update_operators([
@@ -213,7 +291,7 @@ export async function removeTokenOperator(
     .send();
 }
 
-export async function buyToken(
+export async function buyTokenLegacy(
   system: SystemWithWallet,
   marketplaceContract: string,
   tokenContract: string,
@@ -224,5 +302,17 @@ export async function buyToken(
   const contract = await system.toolkit.wallet.at(marketplaceContract);
   return contract.methods
     .buy(tokenSeller, tokenContract, tokenId)
+    .send({ amount: salePrice });
+}
+
+export async function buyToken(
+  system: SystemWithWallet,
+  marketplaceContract: string,
+  saleId: number,
+  salePrice: number
+) {
+  const contract = await system.toolkit.wallet.at(marketplaceContract);
+  return contract.methods
+    .buy(saleId)
     .send({ amount: salePrice });
 }

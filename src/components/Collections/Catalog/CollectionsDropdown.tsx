@@ -19,48 +19,59 @@ export default function CollectionsDropdown() {
   const dispatch = useDispatch();
 
   return (
-    <Menu>
-      <MenuButton as={Button} border="1px solid" borderColor="brand.gray">
-        <Flex align="center">
-          <Box mr={3}>
-            <ChevronDown />
-          </Box>
-          Collections
-        </Flex>
-      </MenuButton>
-      <MenuList>
-        <MenuOptionGroup
-          type="radio"
-          defaultValue={state.selectedCollection || ''}
+    <Flex width="100%" align="center">
+      <Menu>
+        <MenuButton
+          as={Button}
+          border="1px solid"
+          borderColor="brand.gray"
+          flex="1"
         >
-          <Text ml={4} my={2} fontWeight="600">
-            Featured
-          </Text>
-          <MenuItemOption
-            key={state.globalCollection}
-            selected={state.globalCollection === state.selectedCollection}
-            value={state.globalCollection}
-            onSelect={() => dispatch(selectCollection(state.globalCollection))}
+          <Flex align="center">
+            <Box mr={3}>
+              <ChevronDown />
+            </Box>
+            {state.selectedCollection
+              ? state.collections[state.selectedCollection].metadata.name
+              : '-'}
+          </Flex>
+        </MenuButton>
+        <MenuList>
+          <MenuOptionGroup
+            type="radio"
+            defaultValue={state.selectedCollection || ''}
           >
-            {state.collections[state.globalCollection].metadata.name}
-          </MenuItemOption>
-          <Text ml={4} my={2} fontWeight="600">
-            Your Collections
-          </Text>
-          {Object.keys(state.collections)
-            .filter(address => address !== state.globalCollection)
-            .map(address => (
-              <MenuItemOption
-                key={address}
-                value={address}
-                selected={address === state.selectedCollection}
-                onClick={() => dispatch(selectCollection(address))}
-              >
-                {state.collections[address].metadata.name}
-              </MenuItemOption>
-            ))}
-        </MenuOptionGroup>
-      </MenuList>
-    </Menu>
+            <Text ml={4} my={2} fontWeight="600">
+              Featured
+            </Text>
+            <MenuItemOption
+              key={state.globalCollection}
+              selected={state.globalCollection === state.selectedCollection}
+              value={state.globalCollection}
+              onSelect={() =>
+                dispatch(selectCollection(state.globalCollection))
+              }
+            >
+              {state.collections[state.globalCollection].metadata.name}
+            </MenuItemOption>
+            <Text ml={4} my={2} fontWeight="600">
+              Your Collections
+            </Text>
+            {Object.keys(state.collections)
+              .filter(address => address !== state.globalCollection)
+              .map((address, idx) => (
+                <MenuItemOption
+                  key={address + idx}
+                  value={address}
+                  selected={address === state.selectedCollection}
+                  onClick={() => dispatch(selectCollection(address))}
+                >
+                  {state.collections[address].metadata.name}
+                </MenuItemOption>
+              ))}
+          </MenuOptionGroup>
+        </MenuList>
+      </Menu>
+    </Flex>
   );
 }

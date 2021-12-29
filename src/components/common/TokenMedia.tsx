@@ -1,6 +1,18 @@
-import React, { useEffect, useState } from 'react';
+import React, { MouseEventHandler, useEffect, useState } from 'react';
 import { Flex, Image } from '@chakra-ui/react';
 import { FiHelpCircle } from 'react-icons/fi';
+import { IpfsGatewayConfig, ipfsUriToGatewayUrl } from '../../lib/util/ipfs';
+import { Token } from '../../reducer/slices/collections';
+
+interface TokenMediaProps extends Token {
+  config: IpfsGatewayConfig;
+  maxW?: string;
+  maxH?: string;
+  class?: string;
+  cursor?: string;
+  objectFit?: any; //ObjectFitProperty | undefined; Todo ObjectFitProperty not found
+  onClick?: Function;
+}
 
 function MediaNotFound() {
   return (
@@ -18,14 +30,15 @@ function MediaNotFound() {
   );
 }
 
-export function TokenMedia(props: { src: string }) {
+export function TokenMedia(props: TokenMediaProps) {
+  const src = ipfsUriToGatewayUrl(props.config, props.artifactUri);
   const [errored, setErrored] = useState(false);
   const [obj, setObj] = useState<{ url: string; type: string } | null>(null);
   useEffect(() => {
     (async () => {
       let blob;
       try {
-        blob = await fetch(props.src).then(r => r.blob());
+        blob = await fetch(src).then(r => r.blob());
       } catch (e) {
         return setErrored(true);
       }
@@ -34,7 +47,7 @@ export function TokenMedia(props: { src: string }) {
         type: blob.type
       });
     })();
-  }, [props.src]);
+  }, [src]);
 
   if (errored) {
     return <MediaNotFound />;
@@ -45,9 +58,12 @@ export function TokenMedia(props: { src: string }) {
   if (/^image\/.*/.test(obj.type)) {
     return (
       <Image
-        src={props.src}
-        objectFit="contain"
+        src={src}
         flex="1"
+        maxWidth={props.maxW}
+        maxHeight={props.maxH}
+        style={{ objectFit: props.objectFit ?? 'cover', maxWidth: props.maxW, maxHeight: props.maxH ?? '50vh', cursor: props.cursor }}
+        onClick={props.onClick as MouseEventHandler<HTMLImageElement>}
         onError={() => setErrored(true)}
       />
     );
@@ -56,14 +72,37 @@ export function TokenMedia(props: { src: string }) {
   if (/^video\/.*/.test(obj.type)) {
     return (
       <video
-        loop
+      preload="metadata"
         onClick={e => e.preventDefault()}
         onMouseEnter={e => e.currentTarget.play()}
         onMouseLeave={e => e.currentTarget.pause()}
+        style={{ objectFit: props.objectFit ?? 'cover', maxWidth: props.maxW, maxHeight: props.maxH ?? '50vh', cursor: props.cursor }}
+        onLoadedMetadata={e => {(e.target as HTMLVideoElement).currentTime = .05; }}
+        muted
+        controls
       >
         <source src={obj.url} type={obj.type} />
       </video>
     );
+  }
+
+  if (props.metadata.formats?.length) {
+    if (
+      props.metadata.formats[0].mimeType === 'model/gltf-binary' ||
+      props.metadata.formats[0].mimeType === 'model/gltf+json'
+    ) {
+      return (
+        <>
+          <model-viewer
+            auto-rotate
+            rotation-per-second="30deg"
+            camera-controls
+            src={obj.url}
+            class={props.class}
+          ></model-viewer>
+        </>
+      );
+    }
   }
 
   return <MediaNotFound />;

@@ -1,10 +1,11 @@
 import { createSlice, PayloadAction, CaseReducer } from '@reduxjs/toolkit';
 import {
+  getAssetContractsQuery,
   getContractNftsQuery,
   getNftAssetContractQuery,
   getWalletAssetContractsQuery
 } from '../async/queries';
-import { Nft, AssetContract } from '../../lib/nfts/queries';
+import { Nft, AssetContract } from '../../lib/nfts/decoders';
 import config from '../../config.json';
 
 //// State
@@ -28,21 +29,10 @@ type Reducer<A> = CaseReducer<CollectionsState, PayloadAction<A>>;
 
 // Data
 
-const globalCollectionAddress = config.contracts.nftFaucet;
-
 export const initialState: CollectionsState = {
   selectedCollection: null,
-  globalCollection: globalCollectionAddress,
-  collections: {
-    [globalCollectionAddress]: {
-      address: globalCollectionAddress,
-      metadata: {
-        name: 'Minter'
-      },
-      tokens: null,
-      loaded: false
-    }
-  }
+  globalCollection: config.contracts.nftFaucet,
+  collections: {}
 };
 
 //// Reducers & Slice
@@ -58,15 +48,21 @@ const populateCollectionR: PopulateCollection = (state, { payload }) => {
 
 const updateCollectionsR: Reducer<AssetContract[]> = (state, action) => {
   for (let coll of action.payload) {
-    if (!state.collections[coll.address]) {
-      state.collections[coll.address] = { ...coll, tokens: null, loaded: false };
-    }
+    state.collections[coll.address] = {
+      ...coll,
+      tokens: null,
+      loaded: false
+    };
   }
 };
 
 const updateCollectionR: Reducer<AssetContract> = (state, { payload }) => {
   if (!state.collections[payload.address]) {
-    state.collections[payload.address] = { ...payload, tokens: null, loaded: false };
+    state.collections[payload.address] = {
+      ...payload,
+      tokens: null,
+      loaded: false
+    };
   }
 };
 
@@ -87,6 +83,7 @@ const slice = createSlice({
     addCase(getContractNftsQuery.fulfilled, populateCollectionR);
     addCase(getNftAssetContractQuery.fulfilled, updateCollectionR);
     addCase(getWalletAssetContractsQuery.fulfilled, updateCollectionsR);
+    addCase(getAssetContractsQuery.fulfilled, updateCollectionsR);
   }
 });
 

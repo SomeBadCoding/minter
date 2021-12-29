@@ -1,43 +1,37 @@
-import React, { useEffect, useState } from 'react';
-import { useLocation } from 'wouter';
+import React, { useEffect } from 'react';
 import {
   Accordion,
   AccordionButton,
   AccordionIcon,
   AccordionItem,
   AccordionPanel,
-  AspectRatio,
   Box,
   Button,
   Flex,
   Heading,
-  Image,
+  Link,
   Menu,
   MenuList,
   Modal,
   ModalCloseButton,
   ModalContent,
-  ModalOverlay,
-  ResponsiveValue,
-  Slider,
-  SliderFilledTrack,
-  SliderThumb,
-  SliderTrack,
   Text,
   useDisclosure
 } from '@chakra-ui/react';
-import { ChevronLeft, HelpCircle, MoreHorizontal, Star } from 'react-feather';
+import { ChevronLeft, HelpCircle, MoreHorizontal } from 'react-feather';
 import { MinterButton, MinterMenuButton, MinterMenuItem } from '../../common';
-import { TransferTokenModal } from '../../common/TransferToken';
-import { SellTokenButton, CancelTokenSaleButton } from '../../common/SellToken';
-import { BuyTokenButton } from '../../common/BuyToken';
-import { ipfsUriToGatewayUrl } from '../../../lib/util/ipfs';
+import { TransferTokenModal } from '../../common/modals/TransferToken';
+import { SellTokenButton } from '../../common/modals/SellToken';
+import { CancelTokenSaleButton } from '../../common/modals/CancelTokenSale';
+import { BuyTokenButton } from '../../common/modals/BuyToken';
 import { useSelector, useDispatch } from '../../../reducer';
 import {
   getContractNftsQuery,
   getNftAssetContractQuery
 } from '../../../reducer/async/queries';
-
+import { TokenMedia } from '../../common/TokenMedia';
+import lk from '../../common/assets/link-icon.svg'
+import tz from '../../common/assets/tezos-sym.svg'
 import { Maximize2 } from 'react-feather';
 
 function NotFound() {
@@ -68,103 +62,17 @@ function NotFound() {
   );
 }
 
-function MediaNotFound() {
-  return (
-    <AspectRatio
-      ratio={4 / 3}
-      width="100%"
-      borderRadius="3px"
-      bg="gray.100"
-      overflow="hidden"
-    >
-      <Flex flexDir="column" align="center" justify="center">
-        <Box color="gray.300" pb={10}>
-          <HelpCircle size="100px" />
-        </Box>
-        <Heading color="gray.300" size="xl">
-          Image not found
-        </Heading>
-      </Flex>
-    </AspectRatio>
-  );
-}
-
-function TokenImage(props: {
-  id?: string;
-  src: string;
-  width?: string;
-  maxWidth?: string;
-  height?: string;
-  objectFit?: ResponsiveValue<any>;
-  onLoad?: (event: React.SyntheticEvent<HTMLImageElement, Event>) => void;
-  onFetch?: (type: string) => void;
-}) {
-  const [errored, setErrored] = useState(false);
-  const [obj, setObj] = useState<{ url: string; type: string } | null>(null);
-  useEffect(() => {
-    (async () => {
-      let blob;
-      try {
-        blob = await fetch(props.src).then(r => r.blob());
-      } catch (e) {
-        return setErrored(true);
-      }
-      setObj({
-        url: URL.createObjectURL(blob),
-        type: blob.type
-      });
-      props.onFetch?.(blob.type);
-    })();
-  }, [props, props.onFetch, props.src]);
-
-  if (errored) {
-    return <MediaNotFound />;
-  }
-  if (!obj) return null;
-
-  if (/^image\/.*/.test(obj.type)) {
-    return (
-      <Image
-        id={props.id || 'assetImage'}
-        key={props.id || 'assetImage'}
-        src={props.src}
-        objectFit={props.objectFit}
-        onError={() => setErrored(true)}
-        height={props.height}
-        onLoad={props.onLoad}
-      />
-    );
-  }
-
-  if (/^video\/.*/.test(obj.type)) {
-    return (
-      <video controls style={{ margin: 'auto', height: '100%' }}>
-        <source src={obj.url} type={obj.type} />
-      </video>
-    );
-  }
-
-  return <MediaNotFound />;
-}
-
 interface TokenDetailProps {
   contractAddress: string;
   tokenId: number;
 }
 
 function TokenDetail({ contractAddress, tokenId }: TokenDetailProps) {
-  const [, setLocation] = useLocation();
   const { system, collections: state } = useSelector(s => s);
   const disclosure = useDisclosure();
   const dispatch = useDispatch();
   const collection = state.collections[contractAddress];
   const { isOpen, onOpen, onClose } = useDisclosure();
-  const [zoom, setZoom] = useState(0);
-  const [initialZoom, setInitialZoom] = useState(0);
-  const [imageHeight, setImageHeight] = useState(0);
-  const [imageWidth, setImageWidth] = useState(0);
-  const [mediaType, setMediaType] = useState('');
-  const [shouldScroll, setShouldScroll] = useState(false);
 
   const collectionUndefined = collection === undefined;
 
@@ -175,24 +83,6 @@ function TokenDetail({ contractAddress, tokenId }: TokenDetailProps) {
       dispatch(getContractNftsQuery(contractAddress));
     }
   }, [contractAddress, tokenId, collectionUndefined, dispatch]);
-
-  useEffect(() => {
-    const img = document.getElementById('fullScreenAssetView');
-    const wHeight = window.innerHeight;
-    const wWidth = window.innerWidth;
-    const isPortrait = wHeight > wWidth;
-
-    if (img && zoom !== 0 && zoom !== initialZoom) {
-      img.style.maxWidth = `${imageWidth}px`;
-      img.style.width = `${imageWidth * zoom}px`;
-      img.style.height = `${imageHeight * zoom}px`;
-      if (isPortrait && imageHeight > imageWidth) {
-        img.style.margin = `calc((((${
-          imageHeight - wHeight
-        }px) / 2) * ${initialZoom} - 80px) * ${1 - zoom}) auto`;
-      }
-    }
-  }, [imageHeight, imageWidth, initialZoom, zoom]);
 
   if (!collection?.tokens) {
     return null;
@@ -216,219 +106,94 @@ function TokenDetail({ contractAddress, tokenId }: TokenDetailProps) {
         size="full"
         scrollBehavior="inside"
       >
-        <ModalOverlay />
         <ModalContent
-          overflow="auto"
-          m="1rem"
-          maxHeight="calc(100vh - 2rem)"
-          display="unset"
-          onLoad={e => {
-            const img = document.getElementById('fullScreenAssetView');
-            const wHeight = window.innerHeight - 80;
-            const wWidth = window.innerWidth - 32;
-            const isLandscape = wHeight < wWidth;
-            const isPortrait = wHeight > wWidth;
-
-            if (img) {
-              if (!shouldScroll) {
-                img.style.margin = `calc(${
-                  (e.currentTarget.scrollHeight - imageHeight) / 2
-                }px - 3rem) auto`;
-              }
-              if (isLandscape) {
-                if (imageHeight > e.currentTarget.scrollHeight) {
-                  img.style.height = `calc(100% - 3rem)`;
-                  img.style.margin = 'auto';
-                } else if (imageWidth > e.currentTarget.scrollWidth) {
-                  img.style.width = `100%`;
-                  img.style.paddingTop = `calc(25% - 3rem)`;
-                }
-              } else if (isPortrait) {
-                if (imageHeight > e.currentTarget.scrollHeight) {
-                  img.style.margin = `calc(((${
-                    imageHeight - e.currentTarget.scrollHeight
-                  }px) / 2) * ${initialZoom} - 80px) auto`;
-                } else if (imageWidth > e.currentTarget.scrollWidth) {
-                  img.style.paddingTop = `calc(25% - 3rem)`;
-                }
-              }
-            }
-          }}
+          height="100vh"
+          maxHeight="unset"
+          width="100vw"
+          display="flex"
+          flexDirection="column"
+          flexWrap="nowrap"
+          justifyContent="center"
+          alignItems="center"
+          position="relative"
+          backgroundColor="#111111fc"
+          zIndex="2000"
+          margin="0 !important"
+          borderRadius="0"
         >
-          {/^image\/.*/.test(mediaType) ? (
-            <Flex
-              height="3rem"
-              alignItems="center"
-              position="sticky"
-              top={0}
-              left={0}
-            >
-              <ModalCloseButton position="relative" left={0} top={0} />
-              <Slider
-                defaultValue={initialZoom}
-                min={initialZoom}
-                max={1}
-                step={0.01}
-                width="10rem"
-                margin="auto"
-                onChange={setZoom}
-              >
-                <SliderTrack>
-                  <SliderFilledTrack />
-                </SliderTrack>
-                <SliderThumb />
-              </Slider>
-            </Flex>
-          ) : (
-            <ModalCloseButton />
-          )}
-
-          <TokenImage
-            id="fullScreenAssetView"
-            src={ipfsUriToGatewayUrl(system.config.network, token.artifactUri)}
+          <TokenMedia
+            key={`${token.address}-${token.id}`}
+            config={system.config}
+            {...token}
+            metadata={token?.metadata}
+            maxW="95vw"
+            maxH="95vh"
+            objectFit="scale-down"
+          />
+          <ModalCloseButton
+            position="absolute"
+            right="0px !important"
+            display="block !important"
+            fontSize="18px"
+            top="0px !important"
+            borderLeft="2px solid #aaa"
+            color="white"
+            borderTop="2px solid #aaa"
+            width="4rem"
+            height="4rem"
+            borderRight="none"
+            borderBottom="none"
+            borderBottomEndRadius="0"
+            borderTopStartRadius="0"
+            borderTopEndRadius="0"
+            border="0"
           />
         </ModalContent>
       </Modal>
-      <Flex pt={8} px={8}>
+      <Flex justifyContent="flex-start" width="4rem">
         <MinterButton
           variant="primaryActionInverted"
           onClick={e => {
             e.preventDefault();
-            setLocation('/collections', { replace: true });
+            window.history.back();
           }}
         >
           <Box color="currentcolor">
-            <ChevronLeft size={16} strokeWidth="3" />
+            <ChevronLeft size={24} strokeWidth="3" />
           </Box>
-          <Text ml={2}>Collections</Text>
         </MinterButton>
       </Flex>
       <Flex
-        align="center"
-        flex="1"
-        pb={[4, 16]}
-        px={[4, 16]}
-        mx="auto"
-        width={['90%', '70%']}
-        maxHeight="70vh"
-        flexDir="column"
+        px={[8, 16]}
+        pt={[10, 0]}
+        pb={[5, 0]}
+        width={['100%']}
+        maxHeight={["30vh", "60vh", "70vh"]}
+        height={["100%"]}
+        justifyContent="center"
       >
-        <TokenImage
-          src={ipfsUriToGatewayUrl(system.config.network, token.artifactUri)}
-          height="85%"
-          onLoad={e => {
-            const iHeight = e.currentTarget.height;
-            const iWidth = e.currentTarget.width;
-            const wHeight = window.innerHeight - 80;
-            const wWidth = window.innerWidth - 32;
-            const isLandscape = wHeight < wWidth;
-            const isPortrait = wWidth < wHeight;
-
-            const isImageBiggerThanModal = iHeight > wHeight || iWidth > wWidth;
-
-            setShouldScroll(isImageBiggerThanModal);
-
-            if (isImageBiggerThanModal) {
-              if (isLandscape) {
-                if (iHeight > iWidth) {
-                  const initialZoom = wHeight / iHeight;
-                  setInitialZoom(initialZoom);
-                } else {
-                  const initialZoom = wWidth / iWidth;
-                  setInitialZoom(initialZoom);
-                }
-              } else if (isPortrait) {
-                const initialZoom = wWidth / iWidth;
-                setInitialZoom(initialZoom);
-              }
-            } else {
-              setInitialZoom(1);
-            }
-            setImageHeight(iHeight);
-            setImageWidth(iWidth);
-          }}
-          onFetch={setMediaType}
-        />{' '}
-        <Flex align="center" justify="space-evenly" width={['100%']} mt="4">
-          {isOwner ? (
-            <Menu>
-              <MinterMenuButton variant="primary">
-                <MoreHorizontal color="#25282B" />
-              </MinterMenuButton>
-              <MenuList
-                borderColor="brand.lightBlue"
-                borderRadius="2px"
-                p={0}
-                minWidth={[100]}
-              >
-                {token.sale ? (
-                  <></>
-                ) : (
-                  <MinterMenuItem
-                    w={[100]}
-                    variant="primary"
-                    onClick={disclosure.onOpen}
-                  >
-                    Transfer
-                  </MinterMenuItem>
-                )}
-              </MenuList>
-              <TransferTokenModal
-                contractAddress={contractAddress}
-                tokenId={tokenId}
-                disclosure={disclosure}
-              />
-            </Menu>
-          ) : (
-            <Flex w={[10]} />
-          )}
-
-          {token.sale ? (
-            isOwner ? (
-              <Flex direction="column">
-                <Flex align="center" alignSelf="center">
-                  <Text color="black" fontSize="3xl" mr={1}>
-                    ꜩ
-                  </Text>
-                  <Text color="brand.black" fontSize="xl" fontWeight="700">
-                    {token.sale.price.toFixed(2)}
-                  </Text>
-                </Flex>
-                <CancelTokenSaleButton
-                  contract={contractAddress}
-                  tokenId={tokenId}
-                />
-              </Flex>
-            ) : (
-              <Flex
-                flexDirection="column"
-                align="stretch"
-                width={['100%', 200]}
-              >
-                <Flex align="center" justify="space-between" alignSelf="center">
-                  <Text color="black" fontSize="3xl" mr={1}>
-                    ꜩ
-                  </Text>
-                  <Text color="brand.black" fontSize="xl" fontWeight="700">
-                    {token.sale.price.toFixed(2)}
-                  </Text>
-                </Flex>
-                <BuyTokenButton contract={contractAddress} token={token} />
-              </Flex>
-            )
-          ) : isOwner ? (
-            <SellTokenButton contract={contractAddress} tokenId={tokenId} />
-          ) : (
-            <></>
-          )}
-          <Button onClick={onOpen}>
-            <Maximize2 size={16} strokeWidth="3" />
-          </Button>
-        </Flex>
+        <TokenMedia
+          key={`${token.address}-${token.id}`}
+          config={system.config}
+          {...token}
+          metadata={token?.metadata}
+          maxW="100%"
+          maxH="100%"
+          objectFit="scale-down"
+          cursor="pointer"
+          onClick={onOpen}
+        />
+      </Flex>
+      <Flex width="99vw" height="auto" justifyContent="flex-end" marginBottom={[3, 2]} zIndex="50">
+        <Button onClick={onOpen}>
+          <Maximize2 size={16} strokeWidth="3" />
+        </Button>
       </Flex>
       <Flex width={['100%']} bg="white" flexDir="column" flexGrow={1}>
+        <Flex align="center" justify="space-evenly" width={['100']} mt="4">
+        </Flex>
         <Flex
-          width={['90%', '70%']}
+          width={['90%', '90%', '70%']}
           mx="auto"
           flexDir="column"
           px={[4, 16]}
@@ -442,58 +207,47 @@ function TokenDetail({ contractAddress, tokenId }: TokenDetailProps) {
             mb={10}
             pos="relative"
           >
-            {isOwner ? (
-              <Flex>
-                <Flex
-                  py={1}
-                  px={3}
-                  mb={3}
-                  borderRightRadius="5px"
-                  bg="brand.turquoise"
-                  color="brand.black"
-                  align="center"
-                  justify="center"
-                >
-                  <Star fill="currentColor" size={16} />
-                  <Text fontWeight="600" ml={2} fontSize="sm">
-                    You own this asset
-                  </Text>
-                </Flex>
-              </Flex>
-            ) : null}
-            <Heading color="brand.black" size="xl">
+            <Heading textAlign="left" color="brand.black" width={["100%", "100%", "80%"]} fontSize={["10vw", "3vw"]} display="inline-block">
               {token.title}
-            </Heading>
-            <Heading color="brand.darkGray" size="md" mt={[2, 4]}>
-              Minter: {token.metadata?.minter || 'Unknown'}
             </Heading>
             <Text
               fontSize="md"
               color="brand.neutralGray"
               fontWeight="bold"
               mt={[2, 4]}
+              width={['100%', '100%', '60%']}
             >
               {token.description || 'No description provided'}
             </Text>
-            <Flex mt={[4, 8]}>
-              <Flex flexDir="column" width={['100%', 'auto']}>
-                <Text color="brand.neutralGray">Owner</Text>
-                <Text color="brand.darkGray" fontWeight="bold" mt={[2, 4]}>
-                  {token.owner}
-                </Text>
-              </Flex>
-            </Flex>
-            <Accordion allowToggle>
+            <Accordion allowToggle mt={4}>
               <AccordionItem border="none">
-                <AccordionButton mt={[4, 8]} p={0}>
-                  <Text color="brand.neutralGray">Metadata</Text>
+                <AccordionButton p={0}>
+                  <Text color="brand.neutralGray">Token Info</Text>
                   <AccordionIcon />
                 </AccordionButton>
                 <AccordionPanel pb={4}>
-                  {token.metadata?.attributes?.map(({ name, value }) => (
-                    <Flex mt={[4, 8]}>
+                  <Flex mt={[4, 8]}>
+                    <Text color="brand.neutralGray">Minter:</Text>
+                    <Text color="brand.darkGray" fontWeight="bold" ml={[1]} whiteSpace="nowrap" overflow="hidden">
+                      <Link display="block" whiteSpace="nowrap" overflow="hidden" textOverflow="ellipsis" href={`/creator/${token?.metadata?.minter}`}>{
+                        token?.metadata?.minter}&nbsp;<sup><img src={lk} alt="" width="auto" height="auto" style={{ display: 'inline-block' }} /></sup></Link>
+                    </Text>
+                  </Flex>
+                  <Flex mt={[4, 8]}>
+                    <Text color="brand.neutralGray">Collection:</Text>
+                    <Text color="brand.darkGray" fontWeight="bold" ml={[1]} whiteSpace="nowrap" overflow="hidden">
+                      <Link display="block" whiteSpace="nowrap" overflow="hidden" textOverflow="ellipsis" href={`/collection/${contractAddress}`}>
+                        {state.selectedCollection ? state.collections[state.selectedCollection]?.metadata.name 
+                          : collection?.metadata.name ? collection?.metadata.name 
+                          : contractAddress
+                        }&nbsp;
+                        <sup><img src={lk} alt="" width="auto" height="auto" style={{ display: 'inline-block' }} /></sup></Link>
+                    </Text>
+                  </Flex>
+                  {token?.metadata?.attributes?.map(({ name, value }) => (
+                    <Flex key={name + value} mt={[4, 8]}>
                       <Text color="brand.neutralGray">{name}:</Text>
-                      <Text color="brand.darkGray" fontWeight="bold" ml={[1]}>
+                      <Text display="block" color="brand.darkGray" fontWeight="bold" ml={[1]} whiteSpace="nowrap" overflow="hidden" textOverflow="wrap">
                         {value}
                       </Text>
                     </Flex>
@@ -501,10 +255,78 @@ function TokenDetail({ contractAddress, tokenId }: TokenDetailProps) {
                 </AccordionPanel>
               </AccordionItem>
             </Accordion>
+            <Flex display={['flex']} justifyContent="space-between" alignItems="center" width="100%" flexDir={['column', 'row']} flexWrap="wrap" marginTop={2}>
+              <Flex justifyContent={["flex-start"]} alignItems="center" width="100%" marginTop={4}>
+                {token.sale ? (
+                  isOwner ? (
+                    <>
+                      <Text color="brand.black" fontSize="xl" fontWeight="700" marginRight={8}>
+                        {token.sale.price} <img src={tz} alt="" width={10} height="auto" style={{ display: 'inline-block' }} />
+                      </Text>
+                      <Box marginRight={8}>
+                        <CancelTokenSaleButton
+                          contract={token.sale.saleToken.address}
+                          tokenId={token.sale.saleToken.tokenId}
+                          saleId={token.sale.saleId}
+                          saleType={token.sale.type}
+                        />
+                      </Box>
+                    </>
+                  ) : (
+                    <>
+                      <Text color="black" fontSize={['md', 'md', 'lg']} mr={1} fontWeight="700" marginRight={8}>
+                        {token.sale.price.toFixed(2)} <img src={tz} alt="" width={10} height="auto" style={{ display: 'inline-block' }} />
+                      </Text>
+                      <Box>
+                        <BuyTokenButton token={token} />
+                      </Box>
+                    </>
+                  )
+                ) : isOwner ? (
+                  <Box marginRight={8}>
+                    <SellTokenButton contract={contractAddress} tokenId={tokenId} />
+                  </Box>
+                ) : (
+                  <></>
+                )}
+                {isOwner ? (
+                  <Menu>
+                    <MinterMenuButton variant="primary">
+                      <MoreHorizontal color="#25282B" />
+                    </MinterMenuButton>
+                    <MenuList
+                      borderColor="brand.lightBlue"
+                      borderRadius="2px"
+                      p={0}
+                      minWidth={[100]}
+                    >
+                      {token.sale ? (
+                        <></>
+                      ) : (
+                        <MinterMenuItem
+                          w={[100]}
+                          variant="primary"
+                          onClick={disclosure.onOpen}
+                        >
+                          Transfer
+                        </MinterMenuItem>
+                      )}
+                    </MenuList>
+                    <TransferTokenModal
+                      contractAddress={contractAddress}
+                      tokenId={tokenId}
+                      disclosure={disclosure}
+                    />
+                  </Menu>
+                ) : (
+                  <></>
+                )}
+              </Flex>
+            </Flex>
           </Flex>
         </Flex>
       </Flex>
-    </Flex>
+    </Flex >
   );
 }
 
